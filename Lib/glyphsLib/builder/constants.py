@@ -206,13 +206,10 @@ UFO2FT_COLOR_LAYERS_KEY = "com.github.googlei18n.ufo2ft.colorLayers"
 UFO2FT_META_TABLE_KEY = PUBLIC_PREFIX + "openTypeMeta"
 
 DEFAULT_FEATURE_WRITERS = [
-    {"class": "KernFeatureWriter"},
-    {
-        "module": "glyphsLib.featureWriters.markFeatureWriter",
-        "class": "ContextualMarkFeatureWriter",
-    },
-    {"class": "GdefFeatureWriter"},
     {"class": "CursFeatureWriter"},
+    {"class": "KernFeatureWriter"},
+    {"class": "MarkFeatureWriter"},
+    {"class": "GdefFeatureWriter"},
 ]
 
 DEFAULT_LAYER_NAME = PUBLIC_PREFIX + "default"
@@ -320,3 +317,8 @@ LANGUAGE_MAPPING = {
 }
 
 REVERSE_LANGUAGE_MAPPING = {v: k for v, k in LANGUAGE_MAPPING.items()}
+
+GLYPHS_MATH_PREFIX = "com.nagwa.MATHPlugin."
+GLYPHS_MATH_CONSTANTS_KEY = GLYPHS_MATH_PREFIX + "constants"
+GLYPHS_MATH_VARIANTS_KEY = GLYPHS_MATH_PREFIX + "variants"
+GLYPHS_MATH_EXTENDED_SHAPE_KEY = GLYPHS_MATH_PREFIX + "extendedShape"

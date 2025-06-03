@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
 import copy
 import logging
@@ -489,7 +490,7 @@ class ListDictionaryProxy(Proxy):
         if isinstance(key, int):
             del self._items[key]
         elif isinstance(key, str):
-            for item in self._items:
+            for item in list(self._items):
                 if item.name == key:
                     self._items.remove(item)
         else:
@@ -520,12 +521,13 @@ class ListDictionaryProxy(Proxy):
 
 
 class LayersIterator:
-    __slots__ = "curInd", "_owner", "_orderedLayers"
+    __slots__ = ("_layers",)
 
     def __init__(self, owner):
-        self.curInd = 0
-        self._owner = owner
-        self._orderedLayers = None
+        if owner.parent:
+            self._layers = self.orderedLayers(owner)
+        else:
+            self._layers = iter(owner._layers.values())
 
     def __iter__(self):
         return self
@@ -534,39 +536,28 @@ class LayersIterator:
         return self.__next__()
 
     def __next__(self):
-        if self._owner.parent:
-            if self.curInd >= len(self._owner.layers):
-                raise StopIteration
-            item = self.orderedLayers[self.curInd]
-        else:
-            if self.curInd >= len(self._owner._layers):
-                raise StopIteration
-            item = self._owner._layers[self.curInd]
-        self.curInd += 1
-        return item
+        return next(self._layers)
 
-    @property
-    def orderedLayers(self):
-        if not self._orderedLayers:
-            glyphLayerIds = [
-                l.associatedMasterId
-                for l in self._owner._layers.values()
-                if l.associatedMasterId == l.layerId
-            ]
-            masterIds = [m.id for m in self._owner.parent.masters]
-            intersectedLayerIds = set(glyphLayerIds) & set(masterIds)
-            orderedLayers = [
-                self._owner._layers[m.id]
-                for m in self._owner.parent.masters
-                if m.id in intersectedLayerIds
-            ]
-            orderedLayers += [
-                self._owner._layers[l.layerId]
-                for l in self._owner._layers.values()
-                if l.layerId not in intersectedLayerIds
-            ]
-            self._orderedLayers = orderedLayers
-        return self._orderedLayers
+    @staticmethod
+    def orderedLayers(glyph):
+        font = glyph.parent
+        assert font is not None
+        glyphLayerIds = {
+            l.associatedMasterId
+            for l in glyph._layers.values()
+            if l.associatedMasterId == l.layerId
+        }
+        masterIds = {m.id for m in font.masters}
+        intersectedLayerIds = glyphLayerIds & masterIds
+        orderedLayers = [
+            glyph._layers[m.id] for m in font.masters if m.id in intersectedLayerIds
+        ]
+        orderedLayers.extend(
+            glyph._layers[l.layerId]
+            for l in glyph._layers.values()
+            if l.layerId not in intersectedLayerIds
+        )
+        return iter(orderedLayers)
 
 
 class FontFontMasterProxy(Proxy):
@@ -636,7 +627,7 @@ class FontFontMasterProxy(Proxy):
     def remove(self, FontMaster):
         # First remove all layers in all glyphs that reference this master
         for glyph in self._owner.glyphs:
-            for layer in glyph.layers:
+            for layer in list(glyph.layers):
                 if (
                     layer.associatedMasterId == FontMaster.id
                     or layer.layerId == FontMaster.id
@@ -1379,10 +1370,10 @@ class GSCustomParameter(GSBase):
     )
     _CUSTOM_DICT_PARAMS = frozenset("GASP Table")
 
-    def __init__(self, name="New Value", value="New Parameter"):
+    def __init__(self, name="New Value", value="New Parameter", disabled=False):
         self.name = name
         self.value = value
-        self.disabled = False
+        self.disabled = disabled
 
     def __repr__(self):
         return f"<{self.__class__.__name__} {self.name}: {self._value}>"
@@ -1715,7 +1706,7 @@ class GSFontMaster(GSBase):
         if self.italicAngle:
             if names == ["Regular"]:
                 return "Italic"
-            if "Italic" not in self.customName:
+            if "Italic" not in self.customName and "Oblique" not in self.customName:
                 names.append("Italic")
         return " ".join(names)
 
@@ -2281,47 +2272,37 @@ class GSPath(GSBase):
         self._segments = []
         self._segmentLength = 0
 
-        nodeCount = 0
-        segmentCount = 0
         nodes = list(self.nodes)
-        # Cycle node list until curve or line at end
+        # Cycle node list until curve or line at start
         cycled = False
         for i, n in enumerate(nodes):
-            if n.type == "offcurve" or n.type == "line":
+            if n.type == "curve" or n.type == "line":
                 nodes = nodes[i:] + nodes[:i]
                 cycled = True
                 break
         if not cycled:
             return []
 
-        def wrap(i):
-            if i >= len(nodes):
-                i = i % len(nodes)
-            return i
-
-        while nodeCount < len(nodes):
+        for nodeIndex in range(len(nodes)):
+            if nodes[nodeIndex].type == CURVE:
+                count = 3
+            elif nodes[nodeIndex].type == QCURVE:
+                count = 2
+            elif nodes[nodeIndex].type == LINE:
+                count = 1
+            else:
+                continue
             newSegment = segment()
             newSegment.parent = self
-            newSegment.index = segmentCount
-
-            if nodeCount == 0:
-                newSegment.appendNode(nodes[-1])
-            else:
-                newSegment.appendNode(nodes[nodeCount - 1])
-
-            if nodes[nodeCount].type == "offcurve":
-                newSegment.appendNode(nodes[nodeCount])
-                newSegment.appendNode(nodes[wrap(nodeCount + 1)])
-                newSegment.appendNode(nodes[wrap(nodeCount + 2)])
-                nodeCount += 3
-            elif nodes[nodeCount].type == "line":
-                newSegment.appendNode(nodes[nodeCount])
-                nodeCount += 1
-
+            newSegment.index = len(self._segments)
+            for ix in range(-count, 1):
+                newSegment.appendNode(nodes[(nodeIndex + ix) % len(nodes)])
             self._segments.append(newSegment)
-            self._segmentLength += 1
-            segmentCount += 1
 
+        if not self.closed:
+            self._segments.pop(0)
+
+        self._segmentLength = len(self._segments)
         return self._segments
 
     @segments.setter
@@ -2806,13 +2787,15 @@ class GSAnchor(GSBase):
     _parent = None
     _defaultsForName = {"position": Point(0, 0)}
 
-    def __init__(self, name=None, position=None):
+    def __init__(self, name=None, position=None, userData=None):
         self.name = "" if name is None else name
-        self._userData = None
         if position is None:
             self.position = copy.deepcopy(self._defaultsForName["position"])
         else:
             self.position = position
+        self._userData = None
+        if userData is not None:
+            self.userData = userData
 
     def __repr__(self):
         return '<{} "{}" x={:.1f} y={:.1f}>'.format(
@@ -3330,7 +3313,14 @@ class GSInstance(GSBase):
         value = self.customParameters["styleMapFamilyName"]
         if value:
             return value
-        if self.name not in ("Regular", "Bold", "Italic", "Bold Italic"):
+        if self.name not in (
+            "Regular",
+            "Bold",
+            "Italic",
+            "Oblique",
+            "Bold Italic",
+            "Bold Oblique",
+        ):
             return self.familyName + " " + self.name
         else:
             return self.familyName
@@ -3341,7 +3331,14 @@ class GSInstance(GSBase):
 
     @property
     def windowsStyle(self):
-        if self.name in ("Regular", "Bold", "Italic", "Bold Italic"):
+        if self.name in (
+            "Regular",
+            "Bold",
+            "Italic",
+            "Oblique",
+            "Bold Italic",
+            "Bold Oblique",
+        ):
             return self.name
         else:
             return "Regular"
@@ -3350,7 +3347,14 @@ class GSInstance(GSBase):
     def windowsLinkedToStyle(self):
         value = self.linkStyle
         return value
-        if self.name in ("Regular", "Bold", "Italic", "Bold Italic"):
+        if self.name in (
+            "Regular",
+            "Bold",
+            "Italic",
+            "Oblique",
+            "Bold Italic",
+            "Bold Oblique",
+        ):
             return self.name
         else:
             return "Regular"
@@ -3382,6 +3386,8 @@ class GSInstance(GSBase):
 
     # v2 compatibility
     def _get_axis_value(self, index):
+        if self.type == InstanceType.VARIABLE:
+            return None
         if index < len(self.axes):
             return self.axes[index]
         if index < len(self._axis_defaults):
@@ -3709,7 +3715,7 @@ class GSLayer(GSBase):
         return f'<{self.__class__.__name__} "{name}" ({parent})>'
 
     def __lt__(self, other):
-        if self.master and other.master and self.associatedMasterId == self.layerId:
+        if self.master and other.master and self._is_master_layer:
             return (
                 self.master.weightValue < other.master.weightValue
                 or self.master.widthValue < other.master.widthValue
@@ -3745,11 +3751,16 @@ class GSLayer(GSBase):
             return master
 
     @property
+    def _is_master_layer(self):
+        return self.associatedMasterId == self.layerId
+
+    @property
     def name(self):
         if (
             self.associatedMasterId
-            and self.associatedMasterId == self.layerId
+            and self._is_master_layer
             and self.parent
+            and self.parent.parent
         ):
             master = self.parent.parent.masterForId(self.associatedMasterId)
             if master:
@@ -3956,9 +3967,6 @@ class GSLayer(GSBase):
                     axis_min = float(axis_min)
                 if isinstance(axis_max, str):
                     axis_max = float(axis_max)
-                if axis_max == axis.minimum and axis_max == axis.maximum:
-                    # It's full range, ignore it.
-                    continue
                 info[axis.tag] = (axis_min, axis_max)
             return info
 
@@ -3984,7 +3992,7 @@ class GSLayer(GSBase):
             return None
 
         if self.parent.parent.format_version > 2:
-            return (float(v) for v in self.attributes["coordinates"])  # Glyphs 3
+            return [float(v) for v in self.attributes["coordinates"]]  # Glyphs 3
 
         # Glyphs 2
         name = self.name
@@ -4474,7 +4482,9 @@ class GSFont(GSBase):
     def _parse___formatVersion_dict(self, parser, val):
         self.format_version = parser.format_version = val
 
-    def __init__(self, path=None):
+    def __init__(
+        self, path: str | bytes | os.PathLike[str] | os.PathLike[bytes] | None = None
+    ):
         self.DisplayStrings = ""
         self._glyphs = []
         self._instances = []

@@ -667,10 +667,8 @@ def test_axis_with_no_mapping_does_not_error_in_roundtrip_with_2_axes(ufo_module
 
 
 def test_variable_instance(ufo_module):
-    """Glyphs 3 introduced a so-called "variable" instance which is a
-    pseudo-instance that holds various VF settings.
-    This messed with the instance_mapping creation as it would overwrite the designLoc
-    of a default instance of an axis back to 0.
+    """Glyphs 3 introduced a "variable" instance which is a special instance
+    that holds various VF settings. We export it to Design Space variable-font.
     """
     source_path = os.path.join("tests", "data", "VariableInstance.glyphs")
     font = GSFont(source_path)
@@ -680,3 +678,65 @@ def test_variable_instance(ufo_module):
     assert doc.axes[0].map[2] == (400, 80)
     assert doc.axes[0].default == 400
     assert len(doc.instances) == 27  # The VF setting should not be in the DS
+
+    assert len(doc.variableFonts) == 1
+
+    varfont = doc.variableFonts[0]
+    assert varfont.name == "Variable Foo Bar"
+    assert varfont.filename == "Cairo-VariableFooBarVF"
+    assert len(varfont.axisSubsets) == len(doc.axes)
+    assert "public.fontInfo" in varfont.lib
+
+    info = varfont.lib["public.fontInfo"]
+    assert len(info.get("openTypeNameRecords")) == 1
+    assert info["openTypeNameRecords"][0].string == "Variable"
+    assert info["openTypeNameRecords"][0].nameID == 1
+    assert info["openTypeNameRecords"][0].platformID == 1
+    assert info["openTypeNameRecords"][0].languageID == 0
+    assert info["openTypeNameRecords"][0].encodingID == 0
+    assert info.get("openTypeNamePreferredFamilyName") == "Cairo Variable"
+
+
+def test_virtual_masters_extend_min_max_for_unmapped_axis(ufo_module, datadir):
+    # https://github.com/googlefonts/glyphsLib/issues/859
+    font = GSFont(datadir.join("IntermediateLayer.glyphs"))
+    assert ["Cap Height", "Weight"] == [a.name for a in font.axes]
+
+    assert "Axis Mappings" not in font.customParameters
+    for master in font.masters:
+        assert "Axis Location" not in master.customParameters
+        # all non-virtual masters are at the default Cap Height location
+        assert master.axes[0] == 700
+
+    virtual_masters = [
+        cp.value for cp in font.customParameters if cp.name == "Virtual Master"
+    ]
+    assert virtual_masters[0] == [
+        {"Axis": "Cap Height", "Location": 600},
+        {"Axis": "Weight", "Location": 400},
+    ]
+    assert virtual_masters[1] == [
+        {"Axis": "Cap Height", "Location": 800},
+        {"Axis": "Weight", "Location": 400},
+    ]
+
+    ds = to_designspace(font, ufo_module=ufo_module)
+
+    # the min/max for this axis are taken from the virtual masters
+    assert ds.axes[0].name == "Cap Height"
+    assert ds.axes[0].minimum == 600
+    assert ds.axes[0].default == 700
+    assert ds.axes[0].maximum == 800
+    assert not ds.axes[0].map
+
+    assert ds.axes[1].name == "Weight"
+    assert ds.axes[1].minimum == 400
+    assert ds.axes[1].default == 400
+    assert ds.axes[1].maximum == 900
+    assert not ds.axes[1].map
+
+    font2 = to_glyphs(ds)
+
+    assert [
+        cp.value for cp in font2.customParameters if cp.name == "Virtual Master"
+    ] == virtual_masters

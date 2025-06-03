@@ -58,6 +58,7 @@ def to_ufo_master_features(self, ufo, master):
             generate_GDEF=self.generate_GDEF,
             master=master,
             expand_includes=self.expand_includes,
+            minimal=self.minimal,
         )
 
 
@@ -78,12 +79,13 @@ def _is_manual_kern_feature(feature):
     return feature.name == "kern" and not feature.automatic
 
 
-def _to_ufo_features(
+def _to_ufo_features(  # noqa: C901
     font: GSFont,
     ufo: Font | None = None,
     generate_GDEF: bool = False,
     master: GSFontMaster | None = None,
     expand_includes: bool = False,
+    minimal: bool = False,
 ) -> str:
     """Convert GSFont features, including prefixes and classes, to UFO.
 
@@ -96,6 +98,8 @@ def _to_ufo_features(
 
     prefixes = []
     for prefix in font.featurePrefixes:
+        if prefix.disabled and minimal:
+            continue
         strings = []
         if prefix.name != ANONYMOUS_FEATURE_PREFIX_NAME:
             strings.append("# Prefix: %s\n" % prefix.name)
@@ -107,6 +111,8 @@ def _to_ufo_features(
 
     class_defs = []
     for class_ in font.classes:
+        if class_.disabled and minimal:
+            continue
         prefix = "@" if not class_.name.startswith("@") else ""
         name = prefix + class_.name
         class_defs.append(
@@ -118,6 +124,8 @@ def _to_ufo_features(
 
     feature_defs = []
     for feature in font.features:
+        if feature.disabled and minimal:
+            continue
         code = expander.expand(feature.code)
         lines = ["feature %s {" % feature.name]
         notes = feature.notes
@@ -140,16 +148,19 @@ def _to_ufo_features(
                     feature_names = ["featureNames {", f'  name "{name}";', "};"]
         elif font.format_version == 3 and feature.labels:
             feature_names = []
-            feature_names.append("featureNames {")
             for label in feature.labels:
                 langID = _to_name_langID(label["language"])
                 name = label["value"]
+                if name == "":
+                    continue
                 name = name.replace("\\", r"\005c").replace('"', r"\0022")
                 if langID is None:
                     feature_names.append(f'  name "{name}";')
                 else:
                     feature_names.append(f'  name 3 1 0x{langID:X} "{name}";')
-            feature_names.append("};")
+            if feature_names:
+                feature_names.insert(0, "featureNames {")
+                feature_names.append("};")
         if notes:
             lines.append("# notes:")
             lines.extend("# " + line for line in notes.splitlines())

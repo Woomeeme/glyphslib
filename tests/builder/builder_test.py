@@ -136,7 +136,8 @@ def test_propagate_anchors_on(ufo_module):
         ("dad", [("sad", 0, 0), ("dotabove", 50, 50)], []),
         ("dadDotbelow", [("dad", 0, 0), ("dotbelow", 50, -50)], []),
         ("yod", [], [("bottom", 50, -50)]),
-        ("yodyod", [("yod", 0, 0), ("yod", 100, 0)], []),
+        ("yod_yod", [("yod", 0, 0), ("yod", 100, 0)], []),  # ligature
+        ("yodyod", [("yod", 0, 0), ("yod", 100, 0)], []),  # not a ligature
     )
     for name, component_data, anchor_data in glyphs:
         add_glyph(font, name)
@@ -160,7 +161,20 @@ def test_propagate_anchors_on(ufo_module):
             assert anchor.name == "top"
             assert anchor.y == 200
 
+    # 'yodyod' isn't explicitly classified as a 'ligature' hence it will NOT
+    # inherit two 'bottom_1' and 'bottom_2' anchors from each 'yod' component,
+    # but only one 'bottom' anchor from the last component.
+    # https://github.com/googlefonts/glyphsLib/issues/368#issuecomment-2103376997
     glyph = ufo["yodyod"]
+    assert len(glyph.anchors) == 1
+    for anchor in glyph.anchors:
+        assert anchor.name == "bottom"
+        assert anchor.y == -50
+        assert anchor.x == 150
+
+    # 'yod_yod' is a ligature hence will inherit two 'bottom_{1,2}' anchors
+    # from each 'yod' component
+    glyph = ufo["yod_yod"]
     assert len(glyph.anchors) == 2
     for anchor in glyph.anchors:
         assert anchor.y == -50
@@ -1210,6 +1224,26 @@ def test_glyph_color_palette_layers_no_unicode_mapping(ufo_module):
     assert ufo["a.color1"].unicode is None
 
 
+def test_glyph_color_layers_components_2(ufo_module):
+    filename = os.path.join(
+        os.path.dirname(__file__), "..", "data", "ColorComponents.glyphs"
+    )
+    with open(filename) as f:
+        font = glyphsLib.load(f)
+
+    ds = glyphsLib.to_designspace(font, minimize_glyphs_diffs=True)
+    bold_layer0 = ds.sources[1].font.layers["color.0"]
+    bold_layer1 = ds.sources[1].font.layers["color.1"]
+    assert [c.baseGlyph for c in bold_layer0["Aacute"].components] == [
+        "A.color0",
+        "acutecomb.color0",
+    ]
+    assert [c.baseGlyph for c in bold_layer1["Aacute"].components] == [
+        "A.color1",
+        "acutecomb.color1",
+    ]
+
+
 def test_glyph_color_palette_layers_explode(ufo_module):
     font = generate_minimal_font()
     glypha = add_glyph(font, "a")
@@ -1330,6 +1364,55 @@ def test_glyph_color_palette_layers_explode_v3(ufo_module):
 
     assert len(ufo["a.color2"].components) == 1
     assert len(ufo["a.color2"]) == 0
+
+
+def test_glyph_color_layers_no_unicode_mapping(ufo_module):
+    font = generate_minimal_font()
+    glypha = add_glyph(font, "a")
+
+    glypha.unicode = "0061"
+
+    color0 = GSLayer()
+    color1 = GSLayer()
+    color2 = GSLayer()
+    color0.attributes["color"] = 1
+    color1.attributes["color"] = 1
+    color2.attributes["color"] = 1
+    glypha.layers.append(color0)
+    glypha.layers.append(color1)
+    glypha.layers.append(color2)
+
+    for i, layer in enumerate(glypha.layers):
+        path = GSPath()
+        path.nodes = [
+            GSNode(position=(i + 0, i + 0), nodetype="line"),
+            GSNode(position=(i + 100, i + 100), nodetype="line"),
+            GSNode(position=(i + 200, i + 200), nodetype="line"),
+            GSNode(position=(i + 300, i + 300), nodetype="line"),
+        ]
+        if i == 1:
+            path.attributes["fillColor"] = [255, 124, 0, 225]
+        elif i == 2:
+            path.attributes["gradient"] = {
+                "colors": [[[0, 0, 0, 255], 0], [[185, 0, 0, 255], 1]],
+                "end": [0.2, 0.3],
+                "start": [0.4, 0.09],
+            }
+        elif i == 3:
+            path.attributes["gradient"] = {
+                "colors": [[[185, 0, 0, 255], 0], [[0, 0, 0, 255], 1]],
+                "end": [0.2, 0.3],
+                "start": [0.4, 0.09],
+                "type": "circle",
+            }
+        layer.paths.append(path)
+
+    ds = to_designspace(font, ufo_module=ufo_module, minimal=True)
+    ufo = ds.sources[0].font
+
+    assert ufo["a"].unicode == 97
+    assert ufo["a.color0"].unicode is None
+    assert ufo["a.color1"].unicode is None
 
 
 def test_glyph_color_layers_explode(ufo_module):
@@ -2213,8 +2296,10 @@ def test_unique_masterid(ufo_module):
 
 def test_custom_glyph_data(ufo_module):
     font = generate_minimal_font()
-    for glyph_name in ("A", "foo", "bar", "baz"):
+    for glyph_name in ("A", "Aitalic-math", "Aitalic-math.ssty1", "foo", "bar", "baz"):
         add_glyph(font, glyph_name)
+    # add a composite glyph to trigger propagate_anchors
+    add_component(font, "bar", "baz", (1, 0, 0, 1, 0, 0))
     font.glyphs["baz"].production = "bazglyph"
     font.glyphs["baz"].category = "Number"
     font.glyphs["baz"].subCategory = "Decimal Digit"
@@ -2235,6 +2320,10 @@ def test_custom_glyph_data(ufo_module):
     assert lib.get(categoryKey) is None
     assert lib.get(subCategoryKey) is None
     assert lib.get(scriptKey) is None
+
+    assert postscriptNames.get("Aitalic-math") == "u1D434"
+    assert postscriptNames.get("Aitalic-math.ssty1") == "u1D434.ssty1"
+
     # from customGlyphData.xml
     lib = ufo["foo"].lib
     assert postscriptNames.get("foo") == "fooprod"
@@ -2320,17 +2409,36 @@ def test_load_kerning_bracket(ufo_module):
     assert ds2.sources[3].font.kerning == {}
 
 
+def test_unicode_variation_sequences(ufo_module):
+    font = generate_minimal_font()
+    add_glyph(font, "zero")["unicode"] = f"{ord('0'):04x}"
+    add_glyph(font, "zero.uv001")
+    add_glyph(font, "zero.uv255")
+    add_glyph(font, "u1F170")["unicode"] = "1F170"
+    add_glyph(font, "u1F170.uv015")
+    add_glyph(font, "u2EA41")["unicode"] = "2EA41"
+    add_glyph(font, "u2EA41.uv019")
+    ufo = to_ufos(font, ufo_module=ufo_module)[0]
+    unicodeVariationSequences = ufo.lib.get("public.unicodeVariationSequences")
+    assert unicodeVariationSequences == {
+        "FE00": {"0030": "zero.uv001"},
+        "FE0E": {"1F170": "u1F170.uv015"},
+        "E0102": {"2EA41": "u2EA41.uv019"},
+        "E01EE": {"0030": "zero.uv255"},
+    }
+
+
 class _PointDataPen:
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.contours = []
 
     def addPoint(self, pt, segmentType=None, smooth=False, **kwargs):
         self.contours[-1].append((pt[0], pt[1], segmentType, smooth))
 
-    def beginPath(self):
+    def beginPath(self, **kwargs):
         self.contours.append([])
 
-    def endPath(self):
+    def endPath(self, **kwargs):
         if not self.contours[-1]:
             self.contours.pop()
 

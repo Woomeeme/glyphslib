@@ -100,14 +100,21 @@ def get_glyph(glyph_name, data=None, unicodes=None):
     """
 
     # Read data on first use.
-    if data is None:
-        global GLYPHDATA
-        if GLYPHDATA is None:
-            from importlib.resources import open_binary
+    global GLYPHDATA
+    if GLYPHDATA is None:
+        try:
+            from importlib.resources import files
+        except ImportError:
+            # Python <= 3.8 backport
+            from importlib_resources import files
 
-            with open_binary("glyphsLib.data", "GlyphData.xml") as f1:
-                with open_binary("glyphsLib.data", "GlyphData_Ideographs.xml") as f2:
-                    GLYPHDATA = GlyphData.from_files(f1, f2)
+        data_dir = files("glyphsLib.data")
+        with (data_dir / "GlyphData.xml").open("rb") as f1:
+            with (data_dir / "GlyphData_Ideographs.xml").open("rb") as f2:
+                GLYPHDATA = GlyphData.from_files(f1, f2)
+                assert len(GLYPHDATA.names) > 30000
+
+    if data is None:
         data = GLYPHDATA
 
     # Look up data by full glyph name first.
@@ -159,6 +166,9 @@ def _lookup_attributes(glyph_name, data):
         or data.production_names.get(glyph_name)
         or {}
     )
+    # If we are using custom GlyphData, fallback to default GlyphData
+    if not attributes and data is not GLYPHDATA:
+        attributes = _lookup_attributes(glyph_name, GLYPHDATA)
     return attributes
 
 
@@ -257,11 +267,11 @@ def _translate_category(glyph_name, unicode_category):
         "Cf": ("Separator", "Format"),
         "Cn": ("Symbol", None),
         "Co": ("Letter", "Compatibility"),
-        "Ll": ("Letter", "Lowercase"),
+        "Ll": ("Letter", None),
         "Lm": ("Letter", "Modifier"),
         "Lo": ("Letter", None),
-        "Lt": ("Letter", "Uppercase"),
-        "Lu": ("Letter", "Uppercase"),
+        "Lt": ("Letter", None),
+        "Lu": ("Letter", None),
         "Mc": ("Mark", "Spacing Combining"),
         "Me": ("Mark", "Enclosing"),
         "Mn": ("Mark", "Nonspacing"),

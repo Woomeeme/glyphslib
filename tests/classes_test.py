@@ -40,6 +40,7 @@ from glyphsLib.classes import (
     GSPath,
     GSSmartComponentAxis,
     GSBackgroundImage,
+    InstanceType,
     segment,
     LayerComponentsProxy,
     LayerGuideLinesProxy,
@@ -114,7 +115,7 @@ def add_anchor(font, glyphname, anchorname, x, y):
                 layer.anchors = getattr(layer, "anchors", [])
                 anchor = GSAnchor()
                 anchor.name = anchorname
-                anchor.position = (x, y)
+                anchor.position = Point(x, y)
                 layer.anchors.append(anchor)
 
 
@@ -153,6 +154,17 @@ class GlyphLayersTest(unittest.TestCase):
         font.masters.append(master2)
         assert len({m.id for m in font.masters}) == 2
 
+    def test_iterate_layers_of_orphan_glyph(self):
+        # https://github.com/googlefonts/glyphsLib/issues/1013
+        glyph = GSGlyph()
+        assert glyph.parent is None
+        layer = GSLayer()
+        glyph.layers.append(layer)
+        assert layer.parent is glyph
+        # this ought not to raise a `KeyError: 0` exception
+        layers = list(glyph.layers)
+        assert layers[0] is layer
+
 
 class GSFontTest(unittest.TestCase):
     def test_init(self):
@@ -185,6 +197,20 @@ class GSFontTest(unittest.TestCase):
         master = GSFontMaster()
         font.masters.append(master)
         self.assertEqual(master.font, font)
+
+
+class GSInstanceTest(unittest.TestCase):
+    def test_variable_instance(self):
+        instance = GSInstance()
+        instance.name = "Variable"
+        instance.type = InstanceType.VARIABLE
+
+        assert instance.weightValue is None
+        assert instance.widthValue is None
+        assert instance.customValue is None
+        assert instance.customValue1 is None
+        assert instance.customValue2 is None
+        assert instance.customValue3 is None
 
 
 class GSObjectsTestCase(unittest.TestCase):
@@ -592,9 +618,9 @@ class GSFontMasterFromFileTest(GSObjectsTestCase):
         # self.assertIsNone(master.userData["TestData"])
 
         # customParameters
-        master.customParameters[
-            "trademark"
-        ] = "ThisFont is a trademark by MyFoundry.com"
+        master.customParameters["trademark"] = (
+            "ThisFont is a trademark by MyFoundry.com"
+        )
         self.assertGreaterEqual(len(master.customParameters), 1)
         del master.customParameters["trademark"]
 
@@ -645,6 +671,13 @@ class GSFontMasterFromFileTest(GSObjectsTestCase):
         master.italicAngle = 10.0
         self.assertEqual("Italic", master.name)
 
+        # Test that bold italic gets properly named.
+        master = GSFontMaster()
+        master.weight = "Bold"
+        master.width = "Regular"
+        master.italicAngle = 10.0
+        self.assertEqual("Bold Italic", master.name)
+
         # Test that we don't get an extra "Italic" in the name of masters
         # whose customName already contain the string "Italic"
         master = GSFontMaster()
@@ -653,6 +686,15 @@ class GSFontMasterFromFileTest(GSObjectsTestCase):
         master.customName = "Italic"
         master.italicAngle = 10.0
         self.assertEqual("Italic", master.name)
+
+        # Test that we don't get an extra "Italic" in the name of masters
+        # whose customName contains the string "Oblique"
+        master = GSFontMaster()
+        master.weight = "Regular"
+        master.width = "Regular"
+        master.customName = "Oblique"
+        master.italicAngle = 10.0
+        self.assertEqual("Oblique", master.name)
 
     def test_name_assignment(self):
         test_data = [
@@ -832,9 +874,9 @@ class GSInstanceFromFileTest(GSObjectsTestCase):
                     print(value, type(value))
 
         # customParameters
-        instance.customParameters[
-            "trademark"
-        ] = "ThisFont is a trademark by MyFoundry.com"
+        instance.customParameters["trademark"] = (
+            "ThisFont is a trademark by MyFoundry.com"
+        )
         self.assertGreaterEqual(len(instance.customParameters), 1)
         del instance.customParameters["trademark"]
 
@@ -1075,6 +1117,27 @@ class GSLayerFromFileTest(GSObjectsTestCase):
     def test_repr(self):
         layer = self.layer
         self.assertIsNotNone(layer.__repr__())
+
+    def test_repr_orphan_glyph(self):
+        # https://github.com/googlefonts/glyphsLib/issues/1014
+        layer = GSLayer()
+        self.assertIsNone(layer.parent)  # orphan layer
+
+        expected = '<GSLayer "" (orphan)>'
+        self.assertEqual(repr(layer), expected)
+
+        layer.layerId = layer.associatedMasterId = "layer-0"
+        self.assertTrue(layer._is_master_layer)
+        self.assertEqual(repr(layer), expected)
+
+        parent = GSGlyph()
+        parent.layers.append(layer)
+        self.assertEqual(layer.parent, parent)  # no longer orphan layer
+        self.assertIsNone(parent.parent)  # but still orphan glyph
+
+        # this should not crash with
+        #   AttributeError: 'NoneType' object has no attribute 'masterForId'
+        self.assertEqual(repr(layer), expected)
 
     def test_parent(self):
         self.assertIs(self.layer.parent, self.glyph)
@@ -1595,6 +1658,55 @@ class GSPathFromFileTest(GSObjectsTestCase):
             GSNode((204, 397), "offcurve"),
         ]
         self.assertEqual(len(p.segments), 4)
+
+    def test_segments_3(self):
+        p = GSPath()
+        p.nodes = [
+            GSNode((327, 185), "offcurve"),
+            GSNode((299, 210), "offcurve"),
+            GSNode((297, 266), "curve"),
+            GSNode((294, 351), "offcurve"),
+            GSNode((297, 434), "qcurve"),
+            GSNode((299, 490), "offcurve"),
+            GSNode((328, 515), "offcurve"),
+            GSNode((371, 515), "curve"),
+            GSNode((414, 515), "offcurve"),
+            GSNode((443, 490), "offcurve"),
+            GSNode((445, 434), "curve"),
+            GSNode((448, 351), "offcurve"),
+            GSNode((445, 266), "qcurve"),
+            GSNode((443, 210), "offcurve"),
+            GSNode((415, 185), "offcurve"),
+            GSNode((371, 185), "curve"),
+        ]
+        self.assertEqual(len(p.segments), 6)
+
+    def test_segments_4(self):
+        p = GSPath()
+        p.nodes = [
+            GSNode((327, 185), "line"),
+            GSNode((297, 266), "line"),
+            GSNode((371, 185), "line"),
+        ]
+        self.assertEqual(len(p.segments), 3)
+        p.closed = False
+        self.assertEqual(len(p.segments), 2)
+        self.assertEqual(p.segments[0][0].x, 327)
+
+    def test_segments_5(self):
+        p = GSPath()
+        p.nodes = [
+            GSNode((250, 2000), "offcurve"),
+            GSNode((250, 1000), "offcurve"),
+            GSNode((250, 900), "curve"),
+            GSNode((250, 500), "offcurve"),
+            GSNode((250, 50), "offcurve"),
+            GSNode((250, 0), "curve"),
+            GSNode((250, 1700), "curve"),
+            # Yes, this is bad construction but we shouldn't
+            # infinite loop
+        ]
+        self.assertEqual(len(p.segments), 3)
 
     def test_bounds(self):
         bounds = self.path.bounds

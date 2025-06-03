@@ -38,7 +38,7 @@ class GlyphDataTest(unittest.TestCase):
         self.assertEqual(prod("s_t"), "s_t")
         self.assertEqual(prod("Gcommaaccent"), "uni0122")
         self.assertEqual(prod("o_f_f_i.foo"), "o_f_f_i.foo")
-        self.assertEqual(prod("ain_alefMaksura-ar.fina"), "uniFD13")
+        self.assertEqual(prod("ain_alefMaksura-ar.fina"), "uni06390649.fina")
         self.assertEqual(prod("brevecomb"), "uni0306")
         self.assertEqual(prod("brevecomb.case"), "uni0306.case")
         self.assertEqual(prod("brevecomb_acutecomb"), "uni03060301")
@@ -110,9 +110,9 @@ class GlyphDataTest(unittest.TestCase):
         self.assertEqual(cat(".notdef"), ("Separator", None))
         self.assertEqual(cat("uni000D"), ("Separator", None))
         self.assertEqual(cat("boxHeavyUp"), ("Symbol", "Geometry"))
-        self.assertEqual(cat("eacute"), ("Letter", "Lowercase"))
-        self.assertEqual(cat("Abreveacute"), ("Letter", "Uppercase"))
-        self.assertEqual(cat("C-fraktur"), ("Letter", "Uppercase"))
+        self.assertEqual(cat("eacute"), ("Letter", None))
+        self.assertEqual(cat("Abreveacute"), ("Letter", None))
+        self.assertEqual(cat("C-fraktur"), ("Letter", None))
         self.assertEqual(cat("fi"), ("Letter", "Ligature"))
         self.assertEqual(cat("fi.alt"), ("Letter", "Ligature"))
         self.assertEqual(cat("hib-ko"), ("Letter", "Syllable"))
@@ -134,13 +134,19 @@ class GlyphDataTest(unittest.TestCase):
         self.assertEqual(cat("macronlowmod_O"), ("Mark", "Modifier"))
         self.assertEqual(cat("O_o"), ("Letter", "Ligature"))
         self.assertEqual(cat("O_dotaccentcomb_o"), ("Letter", "Ligature"))
-        self.assertEqual(cat("O_dotaccentcomb"), ("Letter", "Uppercase"))
+        self.assertEqual(cat("O_dotaccentcomb"), ("Letter", None))
         self.assertEqual(cat("O_period"), ("Letter", "Ligature"))
-        self.assertEqual(cat("O_nbspace"), ("Letter", "Uppercase"))
+        self.assertEqual(cat("O_nbspace"), ("Letter", None))
         self.assertEqual(cat("_a"), (None, None))
         self.assertEqual(cat("_aaa"), (None, None))
         self.assertEqual(cat("dal_alef-ar"), ("Letter", "Ligature"))
         self.assertEqual(cat("dal_lam-ar.dlig"), ("Letter", "Ligature"))
+        self.assertEqual(cat("po-khmer"), ("Letter", None))
+        self.assertEqual(cat("po-khmer.below"), ("Mark", "Nonspacing"))
+        # see https://github.com/googlefonts/glyphsLib/commit/68e4e9cf44c9919de
+        # this glyph is not in the data, and we want fallback to find po-khmer.below
+        # before po-khmer
+        self.assertEqual(cat("po-khmer.below.ro"), ("Mark", "Nonspacing"))
 
     def test_category_buy_unicode(self):
         def cat(n, u):

@@ -44,6 +44,9 @@ from glyphsLib.builder.constants import (
 from glyphsLib.classes import GSFont, GSFontMaster, GSCustomParameter, GSGlyph, GSLayer
 from glyphsLib.types import parse_datetime
 
+import pytest
+
+
 DATA = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 
@@ -479,6 +482,23 @@ class SetCustomParamsTestBase(object):
         font = glyphsLib.to_glyphs([self.ufo])
         self.assertEqual(font.customParameters["meta Table"], glyphs_meta)
 
+    def test_name_unique_id_as_property(self):
+        uniqueID = "Foo Bar: Version 1.234"
+        self.font.properties["uniqueID"] = uniqueID
+        self.set_custom_params()
+        self.assertEqual(self.ufo.info.openTypeNameUniqueID, uniqueID)
+        # we currently do not round-trip properties
+        # font = glyphsLib.to_glyphs([self.ufo])
+        # self.assertEqual(font.properties["uniqueID"], uniqueID)
+
+    def test_name_unique_id_as_custom_parameter(self):
+        uniqueID = "Foo Bar: Version 1.234"
+        self.font.customParameters["uniqueID"] = uniqueID
+        self.set_custom_params()
+        self.assertEqual(self.ufo.info.openTypeNameUniqueID, uniqueID)
+        font = glyphsLib.to_glyphs([self.ufo])
+        self.assertEqual(font.customParameters["uniqueID"], uniqueID)
+
     def test_name_table_entry(self):
         self.font.customParameters.append(
             GSCustomParameter("Name Table Entry", "1024; FOO; BAZ")
@@ -734,3 +754,28 @@ def test_mutiple_params(ufo_module):
 
     assert instance.customParameters[0].value == "ccmp;sub space by space;"
     assert instance.customParameters[1].value == "liga;sub space space by space;"
+
+
+@pytest.mark.parametrize("disabled", [False, True])
+def test_disabled_glyphOrder_custom_params(ufo_module, disabled):
+    # With minimal=True, 'disabled' custom parameters should be ignored
+    # https://github.com/googlefonts/glyphsLib/issues/905
+    # https://github.com/googlefonts/fontc/issues/985
+    font = GSFont()
+    font.masters.append(GSFontMaster())
+
+    implicit_glyph_order = [".notdef", "A", "B", "C"]
+    for glyph_name in implicit_glyph_order:
+        font.glyphs.append(GSGlyph(glyph_name))
+
+    custom_glyph_order = [".notdef", "C", "B", "A"]
+    font.customParameters.append(
+        GSCustomParameter("glyphOrder", custom_glyph_order, disabled=disabled)
+    )
+
+    ufo = to_ufos(font, ufo_module=ufo_module, minimal=True)[0]
+
+    if disabled:
+        assert ufo.lib["public.glyphOrder"] == implicit_glyph_order
+    else:
+        assert ufo.lib["public.glyphOrder"] == custom_glyph_order

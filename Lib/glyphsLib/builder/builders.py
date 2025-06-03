@@ -28,7 +28,7 @@ from .constants import (
     FONT_CUSTOM_PARAM_PREFIX,
 )
 from .axes import WEIGHT_AXIS_DEF, WIDTH_AXIS_DEF, find_base_style, class_to_value
-from glyphsLib.util import LoggerMixin
+from glyphsLib.util import LoggerMixin, _DeprecatedArgument
 
 
 class UFOBuilder(LoggerMixin):
@@ -41,7 +41,7 @@ class UFOBuilder(LoggerMixin):
         designspace_module=designspaceLib,
         family_name=None,
         instance_dir=None,
-        propagate_anchors=None,
+        propagate_anchors=_DeprecatedArgument,  # DEPRECATED
         use_designspace=False,
         minimize_glyphs_diffs=False,
         generate_GDEF=True,
@@ -54,7 +54,9 @@ class UFOBuilder(LoggerMixin):
         """Create a builder that goes from Glyphs to UFO + designspace.
 
         Keyword arguments:
-        font -- The GSFont object to transform into UFOs
+        font -- The GSFont object to transform into UFOs. We expect this GSFont
+                object to have been pre-processed with
+                ``glyphsLib.builder.preflight_glyphs``.
         ufo_module -- A Python module to use to build UFO objects (you can pass
                       a custom module that has the same classes as ufoLib2 or
                       defcon to get instances of your own classes). Default: ufoLib2
@@ -64,9 +66,8 @@ class UFOBuilder(LoggerMixin):
                        only instances with this name will be returned.
         instance_dir -- if provided, instance UFOs will be located in this
                         directory, according to their Designspace filenames.
-        propagate_anchors -- set to True or False to explicitly control anchor
-                             propagation, the default is to check for
-                             "Propagate Anchors" custom parameter.
+        propagate_anchors -- DEPRECATED. Use preflight_glyphs to propagate anchors on
+                             the GSFont before building UFOs.
         use_designspace -- set to True to make optimal use of the designspace:
                            data that is common to all ufos will go there.
         minimize_glyphs_diffs -- set to True to store extra info in UFOs
@@ -104,9 +105,18 @@ class UFOBuilder(LoggerMixin):
         self.expand_includes = expand_includes
         self.minimal = minimal
 
-        if propagate_anchors is None:
-            propagate_anchors = font.customParameters["Propagate Anchors"]
-            propagate_anchors = bool(propagate_anchors is None or propagate_anchors)
+        if propagate_anchors is not _DeprecatedArgument:
+            from warnings import warn
+
+            warn(
+                "The 'propagate_anchors' argument is deprecated and will be removed "
+                "in a future version. "
+                "Use glyphsLib.builder.preflight_glyphs to propagate anchors on the "
+                "GSFont before building UFOs.",
+                DeprecationWarning,
+            )
+        else:
+            propagate_anchors = False
         self.propagate_anchors = propagate_anchors
 
         # The set of (SourceDescriptor + UFO)s that will be built,
@@ -174,16 +184,9 @@ class UFOBuilder(LoggerMixin):
             # instances with matching 'familyName' custom parameter
             self._do_filter_instances_by_family = True
 
-        if glyph_data:
-            from io import BytesIO
-
-            glyphdata_files = []
-            for path in glyph_data:
-                with open(path, "rb") as fp:
-                    glyphdata_files.append(BytesIO(fp.read()))
-            self.glyphdata = glyphdata.GlyphData.from_files(*glyphdata_files)
-        else:
-            self.glyphdata = None
+        if glyph_data is not None and not isinstance(glyph_data, glyphdata.GlyphData):
+            glyph_data = glyphdata.GlyphData.from_files(*glyph_data)
+        self.glyphdata = glyph_data
 
     def _is_vertical(self):
         master_ids = {m.id for m in self.font.masters}
@@ -213,7 +216,7 @@ class UFOBuilder(LoggerMixin):
         for master_id, source in self._sources.items():
             ufo = source.font
             master = self.font.masters[master_id]
-            if self.propagate_anchors:
+            if self.propagate_anchors:  # deprecated, will be removed one day
                 self.to_ufo_propagate_font_anchors(ufo)  # .anchor_propagation
             if not self.minimal:
                 for layer in list(ufo.layers):

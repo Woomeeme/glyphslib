@@ -1,3 +1,46 @@
+glyphslib (6.9.5+ds1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sat, 16 Nov 2024 11:16:20 -0500
+
+glyphslib (6.9.3+ds1-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+
+ -- Boyuan Yang <byang@debian.org>  Fri, 01 Nov 2024 19:24:08 -0400
+
+glyphslib (6.9.2+ds1-2) unstable; urgency=medium
+
+  * Team upload.
+  * debian/control: Tighten the version requirement for glyphsinfo
+    and python3-ufonormalizer to the latest version to avoid failure
+    in autopkgtest.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 22 Oct 2024 14:12:12 -0400
+
+glyphslib (6.9.2+ds1-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+    + Fix compatibility with the new ufo2ft.
+  * debian/control: Require new glyphslib and ufo2ft packages.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 22 Oct 2024 07:46:33 -0400
+
+glyphslib (6.4.0+ds1-1) unstable; urgency=medium
+
+  * Team upload.
+  * Upload to unstable. (Closes: #1058432)
+
+  [ Yao Wei (魏銘廷) ]
+  * debian/watch, debian/upstream/signing-key.asc: use git mode for
+    d/watch, add signature check.
+
+ -- Boyuan Yang <byang@debian.org>  Fri, 18 Oct 2024 16:26:15 -0400
+
 glyphslib (6.4.0+ds1-1~exp1) experimental; urgency=medium
 
   * Team upload.
